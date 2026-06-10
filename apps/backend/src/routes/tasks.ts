@@ -1,18 +1,17 @@
 import { Router, Request, Response } from 'express';
 import type { CreateTaskBody, UpdateTaskBody } from '@kanban/shared';
-import { tasks, getNextId } from '../store';
+import pool from '../db';
 
 const router = Router();
 
 // ── GET /tasks ─────────────────────────────────────────────────
-// Returns all tasks
-router.get('/', (_req: Request, res: Response) => {
-  res.status(200).json(tasks);
+router.get('/', async (_req: Request, res: Response) => {
+  const { rows } = await pool.query('SELECT * FROM tasks ORDER BY id ASC');
+  res.status(200).json(rows);
 });
 
 // ── POST /tasks ────────────────────────────────────────────────
-// Creates a new task with default status "todo"
-router.post('/', (req: Request<{}, {}, CreateTaskBody>, res: Response) => {
+router.post('/', async (req: Request<{}, {}, CreateTaskBody>, res: Response) => {
   const { title } = req.body;
 
   if (!title || typeof title !== 'string' || title.trim() === '') {
@@ -20,19 +19,15 @@ router.post('/', (req: Request<{}, {}, CreateTaskBody>, res: Response) => {
     return;
   }
 
-  const task = {
-    id: getNextId(),
-    title: title.trim(),
-    status: 'todo' as const,
-  };
-
-  tasks.push(task);
-  res.status(201).json(task);
+  const { rows } = await pool.query(
+    "INSERT INTO tasks (title, status) VALUES ($1, 'todo') RETURNING *",
+    [title.trim()],
+  );
+  res.status(201).json(rows[0]);
 });
 
 // ── PUT /tasks/:id ─────────────────────────────────────────────
-// Updates the status of an existing task
-router.put('/:id', (req: Request<{ id: string }, {}, UpdateTaskBody>, res: Response) => {
+router.put('/:id', async (req: Request<{ id: string }, {}, UpdateTaskBody>, res: Response) => {
   const id = Number(req.params.id);
   const { status } = req.body;
 
@@ -41,28 +36,29 @@ router.put('/:id', (req: Request<{ id: string }, {}, UpdateTaskBody>, res: Respo
     return;
   }
 
-  const task = tasks.find((t) => t.id === id);
-  if (!task) {
+  const { rows } = await pool.query(
+    'UPDATE tasks SET status = $1 WHERE id = $2 RETURNING *',
+    [status, id],
+  );
+
+  if (rows.length === 0) {
     res.status(404).json({ error: `Task with id ${id} not found.` });
     return;
   }
 
-  task.status = status;
-  res.status(200).json(task);
+  res.status(200).json(rows[0]);
 });
 
 // ── DELETE /tasks/:id ──────────────────────────────────────────
-// Deletes a task by ID
-router.delete('/:id', (req: Request<{ id: string }>, res: Response) => {
+router.delete('/:id', async (req: Request<{ id: string }>, res: Response) => {
   const id = Number(req.params.id);
-  const index = tasks.findIndex((t) => t.id === id);
+  const { rowCount } = await pool.query('DELETE FROM tasks WHERE id = $1', [id]);
 
-  if (index === -1) {
+  if (rowCount === 0) {
     res.status(404).json({ error: `Task with id ${id} not found.` });
     return;
   }
 
-  tasks.splice(index, 1);
   res.status(200).json({ message: `Task ${id} deleted.` });
 });
 
