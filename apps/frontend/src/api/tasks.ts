@@ -1,6 +1,6 @@
 import type { Task, TaskStatus } from '@kanban/shared';
 
-const BASE = '/tasks';
+const BASE = `${import.meta.env.VITE_API_URL ?? ''}/tasks`;
 
 async function handleResponse<T>(res: Response): Promise<T> {
   const data = await res.json();
